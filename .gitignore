@@ -1,0 +1,45 @@
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Trae / tooling
+.trae/cache/
+
+# Office temp files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# OCR temp artifacts
+reference/_tmp_ocr_*.png
+
+# Build / dist
+dist/
+build/
