@@ -11,6 +11,17 @@ sources:
   - "reference/架构流程图-流程图.jpg（OCR）"
 ---
 
+# 0. 目录
+- 1. 一页摘要
+- 2. 参考标准与术语
+- 3. 总体架构（平台 / 系统 / 模块）
+- 4. 关键流程
+- 5. 影像资源库设计（数据层/索引层/服务层/展示层）
+- 6. 功能需求（来自“业务需求表”）
+- 7. 权限与审计（最小闭环）
+- 8. 非功能需求（NFR）
+- 9. 风险与待确认
+
 # 1. 一页摘要
 ## 1.1 一句话结论
 建设一套“数字资源管理架构”，以**系统层（资源管理系统 / 数字文物库 / 数字多宝阁）**为入口，以**资源库层（影像 / 视频 / 模型资源库）**为资产底座，以**模块层（采集 / 利用 / 授权 / 展示 / 对外发布审核 / 长期保存 / 人工智能）**为可插拔能力，形成资源全生命周期闭环；影像资源库以 **PREMIS、ANSI/NISO Z39.87、IIIF、Elasticsearch+Milvus、ZFS、PostgreSQL JSONB、Libvips** 等体系与组件落地。
@@ -84,6 +95,58 @@ sources:
 - 古籍阅览平台：作为展示/访问端之一，对接 manifests URL 与资源展示能力。
 - 故宫博物院藏古文字数字平台、藏品总目、故宫名画记/数字多宝阁等：作为上层应用或数据来源/展示端，对接资源展示与检索能力。
 
+## 3.5 总体关系图（Mermaid）
+```mermaid
+flowchart TB
+  subgraph 系统层
+    RMS[资源管理系统]
+    DWC[数字文物库]
+    DDB[数字多宝阁]
+  end
+
+  subgraph 模块层
+    Ingest[资源采集模块]
+    Use[资源利用模块]
+    Rights[资源授权模块]
+    Show[资源展示模块]
+    Pub[对外发布审核模块]
+    Preserve[长期保存模块]
+    AI[人工智能模块]
+  end
+
+  subgraph 资源库层
+    Img[影像资源库]
+    Vid[视频资源库]
+    Model[模型资源库]
+  end
+
+  subgraph 外部系统/平台
+    RelicSys[文物管理系统]
+    RareBook[古籍阅览平台]
+    OtherApps[其它上层应用/平台]
+  end
+
+  RelicSys -->|数据同步| RMS
+  RMS --> Ingest
+  RMS --> Rights
+  RMS --> Preserve
+  RMS --> AI
+  Ingest --> Img
+  Ingest --> Vid
+  Ingest --> Model
+  Use --> Img
+  Show --> Img
+  Pub --> Show
+  Preserve --> Img
+  Preserve --> Vid
+  Preserve --> Model
+  DWC --> Use
+  DWC --> Show
+  DDB --> Show
+  RareBook -->|Manifests URL/浏览| Show
+  OtherApps --> Show
+```
+
 # 4. 关键流程
 ## 4.1 入库与传输（分离式 SIP + 端到端 Fixity）
 依据 `DATA_INGEST_ARCHITECTURE.md`：
@@ -92,9 +155,51 @@ sources:
 - 存储形态：解包存储（Unpacked），物理文件直接可被 IIIF 图像服务读取；数据库记录承载元数据。
 - 导出形态：按需动态生成标准 BagIt 结构并打包 ZIP 返回（包含 bagit.txt、bag-info.txt、manifest-sha256.txt、data/ 载荷）。
 
+### 4.1.1 入库时序图（Mermaid）
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 用户/采集端
+  participant B as 浏览器/客户端
+  participant API as 入库服务
+  participant FS as 文件存储(ZFS/NAS)
+  participant DB as 元数据存储(PostgreSQL+JSONB)
+
+  U->>B: 选择文件与填写/提取元数据
+  B->>B: 计算 SHA-256（Client-side Fixity）
+  B->>API: multipart/form-data(file + manifest JSON)
+  API->>API: 流式接收并计算 SHA-256（Server-side Fixity）
+  API->>API: 比对 Client Hash vs Server Hash
+  alt 校验一致
+    API->>FS: 写入物理文件（解包存储）
+    API->>DB: 写入元数据/事件（含校验值）
+    API-->>B: 返回入库成功与资源ID/版本
+  else 校验不一致
+    API-->>B: 返回失败（校验和不一致）
+  end
+
+  U->>B: 需要交换/下载 BagIt 包
+  B->>API: 请求导出 BagIt ZIP
+  API->>FS: 读取物理文件
+  API->>API: 动态生成 bagit.txt/manifest-sha256.txt/data/
+  API-->>B: 返回 ZIP（BagIt）
+```
+
 ## 4.2 代表影像标记（需求 需-0009）
 - UI 形态：点亮/熄灭按钮（必须有强对比视觉反馈，避免误解）。
 - 业务规则：点亮代表影像时，将同一文物的“代表影像标签”迁移到当前影像；若当前影像被修改/删除，标签自动回退到之前最后一张有效影像。
+
+### 4.2.1 代表影像状态机（Mermaid）
+```mermaid
+stateDiagram-v2
+  [*] --> 未标记
+  未标记 --> 已标记: 点亮为代表影像
+  已标记 --> 未标记: 熄灭（或迁移到另一张影像）
+
+  已标记 --> 回退处理中: 代表影像被删除/失效
+  回退处理中 --> 已标记: 回退到上一张有效影像
+  回退处理中 --> 未标记: 无可回退影像（保持无代表影像）
+```
 
 ## 4.3 利用链路（收藏夹 → 购物车 → 利用单 → 交付）
 依据 `资源管理需求表.xlsx`：
@@ -104,9 +209,37 @@ sources:
 - 利用单：可复制（需-0002），可导入表格生成（需-0003），可导出/下载数据（需-0006）。
 - 交付包：压缩包除影像外，必须附带“利用授权协议”与“元数据说明清单”（需-0005）。
 
+### 4.3.1 利用链路流程图（Mermaid）
+```mermaid
+flowchart LR
+  A[检索/浏览资源] --> B[加入收藏夹]
+  B --> C[标注局部/整理/保存快照]
+  C --> D[加入购物车]
+  D --> E[批量修改规格]
+  E --> F[生成利用单]
+  F --> G[复制利用单/导入表格生成]
+  G --> H[生成交付包]
+  H --> I[下载/交付]
+  I --> J[交付包包含：影像文件 + 利用授权协议 + 元数据说明清单]
+```
+
 ## 4.4 对外发布审核（模块）
 - 发布工单：选择资源 → 自动检查授权 → 提交审核 → 生成可对外分发版本（DIP）。
 - 审计：所有审核动作、导出动作、发布动作必须可追溯（人、时间、原因、版本、交付内容）。
+
+### 4.4.1 对外发布审核流程图（Mermaid）
+```mermaid
+flowchart TD
+  S[选择资源/版本] --> R{授权校验通过?}
+  R -- 否 --> X[拦截并提示补齐授权/调整策略]
+  R -- 是 --> T[提交发布工单]
+  T --> A[审核]
+  A -->|退回| B[补充材料/调整范围]
+  B --> A
+  A -->|通过| D[生成对外分发版本\n(派生/水印/脱敏)]
+  D --> P[发布/交付]
+  P --> L[记录审计日志\n操作者/时间/版本/原因/范围]
+```
 
 ## 4.5 长期保存（BagIt + OAIS + PREMIS + METS）
 依据需求 `需-0010` 与 PDF 概要设计：
@@ -115,8 +248,60 @@ sources:
 - PREMIS：记录保存对象/事件/代理（导入、校验、迁移、修复、交付等）。
 - METS：组织描述性、技术性、结构性元数据并支持交换。
 
+### 4.5.1 SIP/AIP/DIP 与长期保存闭环（Mermaid）
+```mermaid
+flowchart LR
+  SIP[SIP 提交包<br/>文件 + manifest] --> Ingest[入库（Ingest）<br/>校验 / 质检 / 编目]
+  Ingest --> AIP[AIP 保存包<br/>主文件 + 衍生 + 元数据 + Fixity + 事件]
+  AIP --> Storage[归档存储<br/>分层存储 / 多副本]
+  Storage --> Fixity[定期 Fixity 校验]
+  Fixity -->|失败| Repair[修复 / 重建副本]
+  Repair --> Fixity
+  Storage --> DIP[DIP 分发包<br/>按授权生成交付物]
+  DIP --> BagIt[按需生成 BagIt ZIP]
+  BagIt --> Deliver[交付 / 交换]
+  Fixity --> Premis[PREMIS 事件记录]
+  Repair --> Premis
+  Deliver --> Premis
+```
+
 # 5. 影像资源库设计（数据层/索引层/服务层/展示层）
 本节以 PDF 概要设计第 3 页内容与 `文物二维影像元数据思维导图.png` OCR 为准。
+
+## 5.0 分层结构图（Mermaid）
+```mermaid
+flowchart TB
+  subgraph dataLayer[数据层]
+    Meta[元数据<br/>PREMIS / Z39.87 / 描述 / 结构]
+    Data[影像数据<br/>IIIF / WW-T 0114-2023]
+    Store[存储<br/>ZFS + PostgreSQL（JSONB）]
+  end
+  subgraph indexLayer[索引层]
+    ES[Elasticsearch<br/>元数据搜索]
+    Vec[Milvus<br/>向量搜索]
+    Hybrid[混合检索<br/>ES + Milvus]
+  end
+  subgraph serviceLayer[服务层]
+    Libvips[Libvips<br/>缩略 / 切片 / 转换]
+  end
+  subgraph uiLayer[展示层]
+    Mirador[Mirador / IIIF 查看]
+    SearchUI[检索控制<br/>词表 / 以图搜图 / AI 搜索]
+    Dashboard[仪表盘<br/>生命周期 / 统计 / PREMIS]
+  end
+
+  Meta --> ES
+  Meta --> Hybrid
+  Data --> Libvips
+  Store --> ES
+  Store --> Vec
+  ES --> SearchUI
+  Vec --> SearchUI
+  Hybrid --> SearchUI
+  Libvips --> Mirador
+  SearchUI --> Mirador
+  SearchUI --> Dashboard
+```
 
 ## 5.1 数据层：元数据体系（共享 + 分类）
 ### 5.1.1 元数据分层
@@ -269,4 +454,3 @@ Scenario: 交付包附件完整
 3) 权利状态枚举与默认策略（未知/受限的默认拦截范围）。  
 4) Fixity 校验频率、修复责任与 RPO/RTO 目标值。  
 5) 受控词表覆盖范围（哪些字段强制词表、词表来源与治理流程）。  
-
