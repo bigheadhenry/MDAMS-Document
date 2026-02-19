@@ -10,7 +10,7 @@
   - `03-architecture/`：总体架构与深化设计
     - `深化设计/`：包含数据流转、存储分层、OAIS映射、集成架构、安全架构等详细设计
   - `04-processes/`：关键业务流程
-  - `05-image-repo-design/`：影像资源库专项设计
+  - `05-resource-repo-design/`：资源库层设计（影像/三维/视频）
   - `06-requirements/`：功能需求清单
   - `07-auth-and-audit/`：权限与审计体系
   - `08-nfr/`：非功能需求（性能、安全、可靠性）

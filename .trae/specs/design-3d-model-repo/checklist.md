@@ -1,0 +1,6 @@
+- [ ] Folder `prd/05-resource-repo-design` exists (renamed from `05-image-repo-design`).
+- [ ] Document `prd/05-resource-repo-design/三维资源库设计（数据层-索引层-服务层-展示层）.md` created.
+- [ ] Data Layer covers 3D-specific metadata and formats.
+- [ ] Index Layer covers metadata search.
+- [ ] Service Layer covers 3D processing (LOD, Compression).
+- [ ] Presentation Layer covers web-based viewer technology.
